@@ -1,0 +1,20 @@
+# Secrets — never commit API keys or local env files
+# (deliberately NOT a bare "*secret*" glob -- that would also match this
+# project's own scripts/secrets.py and tests/test_secrets.py source files)
+.env
+*.env
+*.env.*
+.secrets
+*.secrets
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Local scratch/test output (may contain fetched data, not secrets, but not repo content)
+scripts/tests/tmp_output/
+dryrun_output.json

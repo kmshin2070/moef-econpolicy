@@ -1,0 +1,64 @@
+# Trimmed fixture for tests / --dry-run smoke checks. Covers:
+#   - a normal bok_ecos monthly indicator (cpi_mom)
+#   - the mixed-frequency-tab case: 2 monthly + 1 quarterly indicator all
+#     in category "Industrial Activity Trends" (tab grain resolves to
+#     monthly; the quarterly row must map onto monthly columns)
+#   - one indicator deliberately left "TODO" (kospi) to exercise
+#     pending_configuration
+
+indicators:
+  - id: cpi_mom
+    category: "CPI"
+    name: "소비자물가지수 (전월대비, MoM)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y009/0"
+    sheet_range: "TODO"
+
+  - id: ind_prod_mom
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (전월대비, MoM)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y033/I11A"
+    sheet_range: "TODO"
+
+  - id: ind_prod_qoq_from_monthly
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (월간 데이터의 전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y033/I11A"
+    sheet_range: "TODO"
+
+  - id: ind_prod_qoq_from_quarterly
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (분기 데이터의 전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "901Y034/I11A"
+    sheet_range: "TODO"
+
+  - id: kospi
+    category: "Stock Price"
+    name: "코스피 (월말 종가)"
+    source: krx
+    frequency: monthly
+    unit: "p"
+    series_id: "TODO"
+    sheet_range: "TODO"
+
+settings:
+  sheet_id_env: "GOOGLE_SHEET_ID"
+  header_row: 1
+  # Deliberately small retention windows (vs. the real indicators.yaml's
+  # 10/40/120) so the sliding-window drop_columns behavior is actually
+  # exercised by this small fixture during --dry-run / tests.
+  retain_periods_by_frequency:
+    annual: 3
+    quarterly: 3
+    monthly: 4

@@ -1,0 +1,431 @@
+# indicators.yaml
+#
+# 15 categories from the user's spec, flattened into individual series
+# (each row in Google Sheets = one series). `category` groups them back
+# together for readability / summary reporting.
+#
+# STILL NEEDS:
+#   - series_id / org_id / table code for every entry marked TODO
+#     (assigned as a research task to Claude Code, per user — verify later)
+#   - sheet_range for every entry (depends on final Google Sheet layout)
+#   - new fetcher modules for sources not yet built: customs, krx, fred
+#     (existing: bok_ecos, kosis). All three new sources use free open APIs
+#     that require an API key.
+#     * "customs" = 공공데이터포털(data.go.kr) 관세청 수출입무역통계 API
+#       (NOT the UNI-PASS customs portal — data.go.kr is the right one for
+#       monthly trade balance / exports / imports / HS-code item stats)
+#
+# frequency values used: quarterly | monthly | annual
+# Retention: "latest 10 years" = 10 annual / 40 quarterly / 120 monthly
+# data points per series (see settings.retain_periods_by_frequency below).
+
+indicators:
+  # ── GDP Growth Rate ─────────────────────────────────────────────
+  - id: gdp_yoy
+    category: "GDP Growth Rate"
+    name: "GDP 성장률 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10211"  # ECOS stat 200Y102 "2.1.1.2. 주요지표(분기지표)", item 10211 "국내총생산(GDP)(실질,원계열,전년동기비)" - HIGH confidence: live-verified via ECOS sample-key call, value 3.7 for 2026Q2 matched published figure - verify before first run
+    sheet_range: "TODO"
+
+  - id: gdp_qoq
+    category: "GDP Growth Rate"
+    name: "GDP 성장률 (전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10111"  # ECOS stat 200Y102, item 10111 "국내총생산(GDP)(실질,계절조정,전기비)" - HIGH confidence: live-verified, value 0.6 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  # ── Industrial Activity Trends ──────────────────────────────────
+  # NOTE: source spec listed 3 sub-items but #2 and #3 are both "QoQ" —
+  # see clarifying question in chat before filling series_id.
+  - id: ind_prod_mom
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (전월대비, MoM)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y033/A00/2"  # ECOS stat 901Y033 "8.1.4. 전산업생산지수(농림어업제외)", item1=A00 전산업생산지수, item2=2 계절조정 - series id HIGH confidence (live-verified index level 120.1 for 202606, exact match) - but ECOS stores only the raw INDEX LEVEL, no stored MoM% series; fetchers/bok_ecos.py computes MoM% client-side from consecutive index values (see its _RECIPES) - verify before first run
+    sheet_range: "TODO"
+
+  - id: ind_prod_qoq_from_monthly
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (월간 데이터의 전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y033/A00/2"  # same underlying series as ind_prod_mom (901Y033/A00/2) - fetchers/bok_ecos.py groups the monthly index into quarters and computes QoQ% per its "qoq_pct_repeated_monthly" recipe, repeating the value across that quarter's 3 months - VERIFY: this indicator's exact intended semantics were already flagged as needing clarification in this file's original header comment (vs. ind_prod_qoq_from_quarterly) - the underlying data source is confirmed, the transform interpretation is not yet confirmed with the requesting team
+    sheet_range: "TODO"
+
+  - id: ind_prod_qoq_from_quarterly
+    category: "Industrial Activity Trends"
+    name: "전산업생산지수 (분기 데이터의 전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "901Y033/A00/2"  # same stat/item as ind_prod_mom, requested at cycle=Q instead of M (ECOS itself returns BOK's quarterly-aggregated index level, live-verified 2026Q1=117.4, 2026Q2=118.5) - fetchers/bok_ecos.py computes QoQ% from consecutive quarterly index levels (no stored QoQ% series exists either) - verify before first run
+    sheet_range: "TODO"
+
+  # ── Private Consumption Trends ──────────────────────────────────
+  - id: consumption_qoq
+    category: "Private Consumption Trends"
+    name: "민간소비 (전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10122"  # ECOS stat 200Y102, item 10122 "민간소비" (전기비 branch) - HIGH confidence: live-verified, value 0.4 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  - id: consumption_yoy
+    category: "Private Consumption Trends"
+    name: "민간소비 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10222"  # ECOS stat 200Y102, item 10222 "민간소비" (전년동기비 branch) - HIGH confidence: live-verified, value 2.5 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  # ── Investment Trends ───────────────────────────────────────────
+  - id: facility_investment_qoq
+    category: "Investment Trends"
+    name: "설비투자 (전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10123"  # ECOS stat 200Y102, item 10123 "설비투자" (전기비) - HIGH confidence: live-verified, value 0.2 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  - id: facility_investment_yoy
+    category: "Investment Trends"
+    name: "설비투자 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10223"  # ECOS stat 200Y102, item 10223 "설비투자" (전년동기비) - HIGH confidence: live-verified, value 6.3 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  - id: construction_investment_qoq
+    category: "Investment Trends"
+    name: "건설투자 (전분기대비, QoQ)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10124"  # ECOS stat 200Y102, item 10124 "건설투자" (전기비) - HIGH confidence: live-verified, value -0.2 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  - id: construction_investment_yoy
+    category: "Investment Trends"
+    name: "건설투자 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: quarterly
+    unit: "%"
+    series_id: "200Y102/10224"  # ECOS stat 200Y102, item 10224 "건설투자" (전년동기비) - HIGH confidence: live-verified, value -1.3 for 2026Q2 - verify before first run
+    sheet_range: "TODO"
+
+  # ── Export Trends ───────────────────────────────────────────────
+  # source: 관세청 (Korea Customs Service) — needs a new fetcher module
+  - id: trade_balance
+    category: "Export Trends"
+    name: "무역수지"
+    source: customs
+    frequency: monthly
+    unit: "bn$"
+    series_id: "TODO"  # service confirmed real: data.go.kr id 15102108 "관세청_수출입총괄(GW)", namespace apis.data.go.kr/1220000, serviceKey auth - but exact operation path/param names unresolved (Swagger spec is behind on-page images + a downloadable 관세청조회코드_v1.3.xlsx, not fetchable by available tools). See scripts/fetchers/customs.py module docstring for what's needed to finish this.
+    sheet_range: "TODO"
+
+  - id: exports_total
+    category: "Export Trends"
+    name: "수출액"
+    source: customs
+    frequency: monthly
+    unit: "bn$"
+    series_id: "TODO"  # same service as trade_balance (data.go.kr id 15102108) - same unresolved operation path, see scripts/fetchers/customs.py
+    sheet_range: "TODO"
+
+  - id: imports_total
+    category: "Export Trends"
+    name: "수입액"
+    source: customs
+    frequency: monthly
+    unit: "bn$"
+    series_id: "TODO"  # same service as trade_balance (data.go.kr id 15102108) - same unresolved operation path, see scripts/fetchers/customs.py
+    sheet_range: "TODO"
+
+  - id: export_automobile_yoy
+    category: "Export Trends"
+    name: "자동차 수출 (전년동기대비, YoY)"
+    source: customs
+    frequency: monthly
+    unit: "%"
+    series_id: "TODO"  # item-level service confirmed real: data.go.kr id 15101609 "관세청_품목별 수출입실적(GW)" (HS-code based) - but Korea trade stats actually classify autos by MTI code not HS heading; legacy MTI 741(broad)/7411(승용차) found but Korea's MTI classification underwent a major restructuring effective the June 2026 monthly release (auto codes reorganized by vehicle type/powertrain) which is BEFORE today's date, so legacy codes are considered unreliable, not just "might go stale" - left TODO rather than use a code likely already wrong
+    sheet_range: "TODO"
+
+  - id: export_semiconductor_yoy
+    category: "Export Trends"
+    name: "반도체 수출 (전년동기대비, YoY)"
+    source: customs
+    frequency: monthly
+    unit: "%"
+    series_id: "TODO"  # same item-level service (data.go.kr id 15101609) - legacy MTI 831=반도체 found (confirmed via MOTIE press-release usage) but the June-2026 MTI overhaul split semiconductors into memory/system (memory further split D램/낸드), so MTI 831 alone likely no longer matches current classification - left TODO, verify current code against KITA stat.kita.net MTI table before filling in
+    sheet_range: "TODO"
+
+  - id: export_shipbuilding_yoy
+    category: "Export Trends"
+    name: "조선 수출 (전년동기대비, YoY)"
+    source: customs
+    frequency: monthly
+    unit: "%"
+    series_id: "TODO"  # same item-level service (data.go.kr id 15101609) - legacy MTI 746 (선박·해양구조물및부품, sub-codes 7461-7464) found via an industry-report snippet, same June-2026 MTI-overhaul staleness risk as the other two item-level indicators above - left TODO, verify against KITA stat.kita.net before filling in
+    sheet_range: "TODO"
+
+  # ── Current Account Balance ─────────────────────────────────────
+  - id: cab_total
+    category: "Current Account Balance"
+    name: "경상수지"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn$"
+    series_id: "301Y013/000000"  # ECOS stat 301Y013 "2.5.1.1. 국제수지", item 000000 "경상수지" - HIGH confidence: live-verified, value 49730.4 for 202606, exact match - verify before first run
+    sheet_range: "TODO"
+
+  - id: cab_goods
+    category: "Current Account Balance"
+    name: "상품수지"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn$"
+    series_id: "301Y013/100000"  # ECOS stat 301Y013, item 100000 "상품수지" - HIGH confidence per research (child item of 경상수지, same table as cab_total) - verify before first run
+    sheet_range: "TODO"
+
+  - id: cab_services
+    category: "Current Account Balance"
+    name: "서비스수지"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn$"
+    series_id: "301Y013/200000"  # ECOS stat 301Y013, item 200000 "서비스수지" - HIGH confidence: live-verified, value -1289.6 for 202606 - verify before first run
+    sheet_range: "TODO"
+
+  - id: cab_primary_income
+    category: "Current Account Balance"
+    name: "본원소득수지"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn$"
+    series_id: "301Y013/300000"  # ECOS stat 301Y013, item 300000 "본원소득수지" - HIGH confidence: live-verified, value 3270.5 for 202606 - verify before first run
+    sheet_range: "TODO"
+
+  - id: cab_secondary_income
+    category: "Current Account Balance"
+    name: "이전소득수지"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn$"
+    series_id: "301Y013/400000"  # ECOS stat 301Y013, item 400000 "이전소득수지" - HIGH confidence: live-verified, value -142.2 for 202606; goods+services+primary+secondary reconciles to cab_total's 49730.4 - verify before first run
+    sheet_range: "TODO"
+
+  # ── CPI ──────────────────────────────────────────────────────────
+  - id: cpi_mom
+    category: "CPI"
+    name: "소비자물가지수 (전월대비, MoM)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y009/0"  # ECOS stat 901Y009 "4.2.1. 소비자물가지수", item 0 = 총지수(2020=100) - series id HIGH confidence (live-verified index 119.77 for 202607, exact match) - but ECOS stores only the raw INDEX, no stored MoM% series; fetchers/bok_ecos.py computes MoM% client-side from consecutive index values - verify before first run
+    sheet_range: "TODO"
+
+  - id: cpi_yoy
+    category: "CPI"
+    name: "소비자물가지수 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "901Y009/0"  # same underlying index series as cpi_mom (901Y009/0); fetchers/bok_ecos.py computes YoY% client-side vs. the value 12 months prior - verify before first run
+    sheet_range: "TODO"
+
+  # ── Oil Prices ───────────────────────────────────────────────────
+  # source: FRED (switched from petronet per user request)
+  - id: oil_dubai
+    category: "Oil Prices"
+    name: "두바이유"
+    source: fred
+    frequency: monthly
+    unit: "$/Bbl"
+    series_id: "POILDUBUSDM"  # FRED "Global price of Dubai Crude" (monthly, IMF-sourced, $/Bbl) - confirmed to exist as a native FRED series (fred.stlouisfed.org/series/POILDUBUSDM); Dubai crude is NOT one of the daily D-prefixed EIA spot series like WTI/Brent, it's this separate IMF-sourced monthly series - verify before first run
+    sheet_range: "TODO"
+
+  - id: oil_brent
+    category: "Oil Prices"
+    name: "브렌트유"
+    source: fred
+    frequency: monthly
+    unit: "$/Bbl"
+    series_id: "MCOILBRENTEU"  # FRED "Crude Oil Prices: Brent - Europe", monthly average variant (fred.stlouisfed.org/series/MCOILBRENTEU), chosen over the daily DCOILBRENTEU since this indicator's frequency is monthly - verify before first run
+    sheet_range: "TODO"
+
+  - id: oil_wti
+    category: "Oil Prices"
+    name: "WTI유"
+    source: fred
+    frequency: monthly
+    unit: "$/Bbl"
+    series_id: "MCOILWTICO"  # FRED "Crude Oil Prices: WTI - Cushing, Oklahoma", monthly average variant (fred.stlouisfed.org/series/MCOILWTICO), chosen over the daily DCOILWTICO since this indicator's frequency is monthly - verify before first run
+    sheet_range: "TODO"
+
+  # ── BSI & CSI ────────────────────────────────────────────────────
+  - id: bsi
+    category: "BSI & CSI"
+    name: "기업경기실사지수 (BSI)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "p"
+    series_id: "512Y013/99988/AA"  # ECOS stat 512Y013 "6.1.1.1. 기업경기조사(실적)", item1=99988 전산업, item2=AA 업황실적BSI - HIGH confidence: live-verified, value 77 for 202607. NOTE: this is the literal 전산업 업황BSI(실적), distinct from the separately-published composite "기업심리지수(ESI)" (98.5 same month) - if the composite ESI was actually intended instead, that is a different, not-yet-identified series. Forecast counterpart (전망) is stat 512Y014, item2=BA, live-verified =75 for 202607, in case outlook rather than actual is wanted - verify before first run
+    sheet_range: "TODO"
+
+  - id: csi
+    category: "BSI & CSI"
+    name: "소비자심리지수 (CSI)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "p"
+    series_id: "511Y002/FME/99988"  # ECOS stat 511Y002 "소비자심리지수", item1=FME, item2=99988 전체 - HIGH confidence: live-verified, value 106.8 for 202607, exact match - verify before first run
+    sheet_range: "TODO"
+
+  # ── Stock Price ──────────────────────────────────────────────────
+  # source: KRX — needs a new fetcher module
+  - id: kospi
+    category: "Stock Price"
+    name: "코스피 (월말 종가)"
+    source: krx
+    frequency: monthly
+    unit: "p"
+    series_id: "코스피"  # idxNm value for data.go.kr id 15094807 "금융위원회_지수시세정보" -> GetMarketIndexInfoService/getStockMarketIndex (apis.data.go.kr/1160100/service/...), a serviceKey-keyed API chosen over KRX's own unauthenticated MDCSTAT endpoints for architectural consistency (every source here needs its own *_API_KEY). Base URL/params confirmed via a working third-party sample call (see fetchers/krx.py). VERIFY before first run: exact idxNm string may have changed in KRX's Dec-2024 index-name scheme revision
+    sheet_range: "TODO"
+
+  - id: kosdaq
+    category: "Stock Price"
+    name: "코스닥 (월말 종가)"
+    source: krx
+    frequency: monthly
+    unit: "p"
+    series_id: "코스닥"  # same service as kospi (data.go.kr id 15094807) - VERIFY idxNm string, see kospi's comment
+    sheet_range: "TODO"
+
+  # ── International Balance of Payments ───────────────────────────
+  - id: domestic_foreign_investment
+    category: "International Balance of Payments"
+    name: "내국인 증권투자 (자산)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn"
+    series_id: "301Y013/BOPF21000000"  # ECOS stat 301Y013 (same 국제수지 table as Current Account Balance entries), item BOPF21000000 "증권투자(자산)" under 금융계정(BOPF00000000) - HIGH confidence: live-verified, value 3556.9 for 202606, exact match - verify before first run
+    sheet_range: "TODO"
+
+  - id: foreign_domestic_investment
+    category: "International Balance of Payments"
+    name: "외국인 증권투자 (부채)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "mn"
+    series_id: "301Y013/BOPF22000000"  # ECOS stat 301Y013, item BOPF22000000 "증권투자(부채)" - HIGH confidence: live-verified, value -26324.1 for 202606, exact match - verify before first run
+    sheet_range: "TODO"
+
+  # ── Exchange Rate ────────────────────────────────────────────────
+  - id: exchange_rate_usdkrw
+    category: "Exchange Rate"
+    name: "원/달러 환율"
+    source: bok_ecos
+    frequency: monthly
+    unit: "KRW/USD"
+    series_id: "731Y001/0000001"  # ECOS stat 731Y001 "3.1.1.1. 주요국 통화의 대원화환율", item 0000001 "원/미국달러(매매기준율)" - MEDIUM confidence: live-verified value (1393, 2026-08-21) but this table is DAILY-ONLY ("일별") - a monthly-cycle query returned no data during research, and no monthly-aggregated counterpart table was found within budget. fetchers/bok_ecos.py requests daily data and reduces to a month-end value client-side - VERIFY this is the intended convention (vs. a monthly average) before first run
+    sheet_range: "TODO"
+
+  # ── Bond Yields & Interest Rates ────────────────────────────────
+  - id: treasury_10y
+    category: "Bond Yields & Interest Rates"
+    name: "국고채 10년물 금리"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "817Y002/010210000"  # ECOS stat 817Y002 "1.3.2.1. 시장금리(일별)", item 010210000 "국고채(10년)" - item name confirmed via live StatisticItemList exact match - MEDIUM-HIGH confidence overall: this table is DAILY-ONLY, a monthly-cycle query returned no data. A monthly/quarterly/annual companion table (721Y001, "1.3.2.2. 시장금리(월,분기,년)") likely exists but uses a DIFFERENT item-code scheme not fully verified within research budget (public sample key caps item-list results at 10 rows). fetchers/bok_ecos.py requests the daily series and reduces to a month-end value client-side - VERIFY before first run, ideally re-probe 721Y001's full item list with a real (non-sample) key
+    sheet_range: "TODO"
+
+  - id: treasury_3y
+    category: "Bond Yields & Interest Rates"
+    name: "국고채 3년물 금리"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "817Y002/010200000"  # ECOS stat 817Y002, item 010200000 "국고채(3년)" - HIGH confidence: live-verified value 3.854 for 2026-08-21, exact match. Same daily-only caveat as treasury_10y - fetchers/bok_ecos.py reduces to month-end client-side - verify before first run
+    sheet_range: "TODO"
+
+  - id: bok_base_rate
+    category: "Bond Yields & Interest Rates"
+    name: "한국은행 기준금리"
+    source: bok_ecos
+    frequency: monthly
+    unit: "%"
+    series_id: "722Y001/0101000"  # ECOS stat 722Y001 "1.3.1. 한국은행 기준금리 및 여수신금리", item 0101000 "한국은행 기준금리" - HIGH confidence: live-verified, value 2.75 for 202607, exact match; table also supports D/Q/A cycles - verify before first run
+    sheet_range: "TODO"
+
+  - id: fed_funds_rate
+    category: "Bond Yields & Interest Rates"
+    name: "미국 연방기금금리 (Fed Funds Rate)"
+    source: fred
+    frequency: monthly
+    unit: "%"
+    series_id: "FEDFUNDS"  # FRED "Federal Funds Effective Rate" (monthly, %) (fred.stlouisfed.org/series/FEDFUNDS), chosen over the daily DFF series since this indicator's frequency is monthly - verify before first run
+    sheet_range: "TODO"
+
+  # ── Employment ───────────────────────────────────────────────────
+  - id: employment_change_yoy
+    category: "Employment"
+    name: "취업자 수 증감 (전년동기대비, YoY)"
+    source: bok_ecos
+    frequency: monthly
+    unit: "1K"
+    series_id: "901Y027/I61BA/I28A"  # ECOS stat 901Y027 "8.6.2. 경제활동인구" (this IS the KOSTAT 경제활동인구조사 series relayed through ECOS), item1=I61BA 취업자, item2=I28A 원계열 (I28B seasonally-adjusted also exists if preferred) - series id HIGH confidence (live-verified level 29,136천명 for 202607, exact match) - but no stored YoY-CHANGE item exists; fetchers/bok_ecos.py computes the 천명 diff vs. 12 months prior client-side (matches unit "1K" already declared here, i.e. an absolute count difference, not a %) - verify before first run
+    sheet_range: "TODO"
+
+  - id: employment_rate
+    category: "Employment"
+    name: "고용률"
+    source: kosis
+    frequency: monthly
+    unit: "%"
+    series_id: "DT_1DA7002S"  # KOSIS tblId - "성별/연령계층별 경제활동인구총괄" (통계청), corroborated by multiple search-result snippets citing this orgId+tblId pair - VERIFY before first run: table has many items (고용률/실업률/취업자/...), no confirmed itmId to isolate 고용률 alone - fetcher filters by ITM_NM containing "고용률" client-side instead, unconfirmed against a live call
+    org_id: "101"  # KOSIS orgId for 통계청 (Statistics Korea) - medium-high confidence, see series_id comment
+    sheet_range: "TODO"
+
+  # ── Government Debt ──────────────────────────────────────────────
+  - id: government_debt
+    category: "Government Debt"
+    name: "국가채무 (D1 기준)"
+    source: kosis
+    frequency: annual
+    unit: "KRW 1tn"
+    series_id: "TODO"  # unresolved: not found as a discrete KOSIS 국가승인통계 series after real search effort (e-나라지표 idx_cd=1106 cites MOEF's 국가채무관리보고서/계획 directly, not KOSIS; no match in narastat.kr approved-statistics registry). Stronger lead outside KOSIS: 기획재정부 열린재정 Open Fiscal Data (openfiscaldata.go.kr), serviceKey-keyed, dedicated 국가채무(D1/D2/D3) page at /op/ko/sm/UOPKOSMA20 - would need a source-type change from "kosis" if pursued, left TODO per "don't fabricate"
+    org_id: "TODO"  # see series_id comment - same blocker
+    sheet_range: "TODO"
+
+  - id: government_debt_to_gdp
+    category: "Government Debt"
+    name: "국가채무비율 (D1/GDP)"
+    source: kosis
+    frequency: annual
+    unit: "%"
+    series_id: "TODO"  # unresolved, same as government_debt - e-나라지표 idxCd=4209 also cites MOEF directly not KOSIS; KOSIS orgId=101/tblId=DT_2WEO026 ("일반정부 총부채") was found but is a DIFFERENT concept (IMF WEO general-government-debt basis), not the narrower D1 MOEF definition - not used to avoid a wrong-definition series. Same openfiscaldata.go.kr lead as government_debt applies here too.
+    org_id: "TODO"  # see series_id comment - same blocker
+    sheet_range: "TODO"
+
+settings:
+  sheet_id_env: "GOOGLE_SHEET_ID"
+  header_row: 1
+  # Confirmed: "latest 10 years" retention applied per underlying frequency.
+  retain_periods_by_frequency:
+    annual: 10
+    quarterly: 40
+    monthly: 120

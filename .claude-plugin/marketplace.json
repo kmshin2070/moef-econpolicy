@@ -1,0 +1,13 @@
+{
+  "name": "our-team-marketplace",
+  "owner": {
+    "name": "MOEF Econ Policy Team"
+  },
+  "plugins": [
+    {
+      "name": "moef-econpolicy",
+      "source": "./",
+      "description": "Weekly-updated Korean/global economic indicator tracking in Google Sheets, plus MOEF-styled presentation generation."
+    }
+  ]
+}

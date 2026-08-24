@@ -1,0 +1,8 @@
+{
+  "name": "moef-econpolicy",
+  "description": "Weekly-updated Korean/global economic indicator tracking in Google Sheets, plus MOEF-styled presentation generation.",
+  "version": "0.1.0",
+  "author": {
+    "name": "MOEF Econ Policy Team"
+  }
+}
