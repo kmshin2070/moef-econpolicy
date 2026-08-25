@@ -19,8 +19,8 @@ module does not do.
 
 from __future__ import annotations
 
+import periods
 import secrets
-import sheet_layout
 from errors import FetchError
 
 from . import _http
@@ -75,7 +75,7 @@ def fetch(indicator: dict, api_key: str) -> list[dict]:
         date_str = obs.get("date")  # "YYYY-MM-DD"
         if not date_str:
             continue
-        period = sheet_layout.format_period(date_str, frequency)
+        period = periods.format_period(date_str, frequency)
         results.append({"period": period, "value": value})
 
     if not results:

@@ -46,6 +46,20 @@ class TestMask(unittest.TestCase):
         self.assertNotIn("one111two", masked)
         self.assertNotIn("three222four", masked)
 
+    def test_masks_supabase_key_value_embedded_in_text(self):
+        os.environ["SUPABASE_KEY"] = "service-role-secret-value"
+        message = "PostgREST error: request failed with token service-role-secret-value"
+        masked = secrets.mask(message)
+        self.assertNotIn("service-role-secret-value", masked)
+        self.assertIn("***MASKED***", masked)
+
+    def test_masks_supabase_url_value_embedded_in_text(self):
+        os.environ["SUPABASE_URL"] = "https://abcxyz123.supabase.co"
+        message = "ConnectionError: failed to reach https://abcxyz123.supabase.co/rest/v1/economic_indicators"
+        masked = secrets.mask(message)
+        self.assertNotIn("https://abcxyz123.supabase.co", masked)
+        self.assertIn("***MASKED***", masked)
+
     def test_short_values_under_len4_not_masked_by_value_pass(self):
         # len < 4 is excluded from the value-based pass per spec, but the
         # param-name regex pass can still catch it if it's in key=... form.

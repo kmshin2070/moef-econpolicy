@@ -16,8 +16,12 @@ from __future__ import annotations
 import os
 import re
 
-# Matches env var *names* that hold API keys, e.g. BOK_API_KEY, FRED_API_KEY.
-API_KEY_VAR_PATTERN = re.compile(r".*_API_KEY$")
+# Matches env var *names* that hold sensitive material: API keys
+# (BOK_API_KEY, FRED_API_KEY, ...), bare *_KEY vars (SUPABASE_KEY), and
+# *_URL vars (SUPABASE_URL) -- broadened generically by naming convention
+# rather than a hardcoded name list, so any future *_KEY/*_API_KEY/*_URL
+# env var is covered automatically.
+SENSITIVE_ENV_VAR_PATTERN = re.compile(r".*_(API_)?KEY$|.*_URL$")
 
 # Common "key in a query string" param names, case-insensitive, used by the
 # public APIs this project talks to (ECOS, KOSIS, data.go.kr, FRED, ...).
@@ -61,13 +65,13 @@ def get_key(var_name: str) -> str:
     return os.environ[var_name]
 
 
-def _currently_set_api_key_values() -> list[str]:
+def _currently_set_sensitive_values() -> list[str]:
     """Internal helper: values (not names) of every currently-set env var
-    whose name matches API_KEY_VAR_PATTERN, filtered to len>=4 so we don't
-    accidentally mask trivial substrings. Used only inside mask()."""
+    whose name matches SENSITIVE_ENV_VAR_PATTERN, filtered to len>=4 so we
+    don't accidentally mask trivial substrings. Used only inside mask()."""
     values = []
     for name, value in os.environ.items():
-        if API_KEY_VAR_PATTERN.match(name) and value and len(value) >= 4:
+        if SENSITIVE_ENV_VAR_PATTERN.match(name) and value and len(value) >= 4:
             values.append(value)
     return values
 
@@ -76,9 +80,10 @@ def mask(text: str) -> str:
     """Redact secret material from `text` before it is allowed to reach
     stdout, the output JSON, or the summary.
 
-    1) Any currently-set env var whose name matches API_KEY_VAR_PATTERN:
-       if its value (len>=4) appears verbatim in `text`, replace with
-       '***MASKED***'.
+    1) Any currently-set env var whose name matches SENSITIVE_ENV_VAR_PATTERN
+       (any *_API_KEY, bare *_KEY like SUPABASE_KEY, or *_URL like
+       SUPABASE_URL): if its value (len>=4) appears verbatim in `text`,
+       replace with '***MASKED***'.
     2) Regex-strip common "key in query string" params case-insensitively:
        (key|apikey|api_key|serviceKey|authkey)=<value> -> same param name
        followed by =***MASKED***
@@ -87,7 +92,7 @@ def mask(text: str) -> str:
         return text
 
     masked = text
-    for value in _currently_set_api_key_values():
+    for value in _currently_set_sensitive_values():
         if value and value in masked:
             masked = masked.replace(value, "***MASKED***")
 

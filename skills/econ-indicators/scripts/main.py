@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """CLI entry point for the econ-indicators backend.
 
-Reads indicators.yaml + a sheet-state snapshot, fetches fresh data for
-every fully-configured indicator, computes row/column sheet updates via
-sheet_layout, and writes one result JSON to --output-out. stdout only
+Reads indicators.yaml, fetches fresh data for every fully-configured
+indicator, trims it to each indicator's retention window via
+periods.sliding_window, and upserts the kept rows straight into the
+Supabase `economic_indicators` table (plus deleting anything outside the
+window). Each run recomputes the retention window from scratch and
+upserts idempotently -- no external state input is needed. stdout only
 ever carries short non-sensitive progress lines -- never the JSON
 payload, never a raw exception, never a secret value.
 """
@@ -22,8 +25,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import yaml  # noqa: E402
 
+import periods  # noqa: E402
 import secrets  # noqa: E402
-import sheet_layout  # noqa: E402
+import supabase_client  # noqa: E402
 from errors import ConfigError  # noqa: E402
 
 _TODO = "TODO"
@@ -36,23 +40,6 @@ def load_indicators_file(path: Path) -> dict:
         data = yaml.safe_load(f)
     if not data or "indicators" not in data:
         raise ConfigError(f"indicators file {path} missing top-level 'indicators' key")
-    return data
-
-
-def load_sheet_state(path: str | None) -> dict:
-    """Missing path, missing file, or empty file all mean "empty state"
-    (first-run bootstrap) -- never an error."""
-    if not path:
-        return {"tabs": {}}
-    p = Path(path)
-    if not p.exists() or p.stat().st_size == 0:
-        return {"tabs": {}}
-    with open(p, "r", encoding="utf-8") as f:
-        text = f.read().strip()
-    if not text:
-        return {"tabs": {}}
-    data = json.loads(text)
-    data.setdefault("tabs", {})
     return data
 
 
@@ -75,11 +62,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to indicators.yaml (default: indicators.yaml next to skills/econ-indicators/, i.e. one level above scripts/)",
     )
     parser.add_argument(
-        "--sheet-state-in",
-        default=None,
-        help="Path to current-sheet-state JSON (missing/empty => first-run bootstrap)",
-    )
-    parser.add_argument(
         "--output-out",
         default=None,
         help="Path to write the result JSON (never written to stdout). Required unless --list-required-keys.",
@@ -87,7 +69,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Use tests/fixtures/mock_fetchers.py instead of the real registry",
+        help="Use tests/fixtures/mock_fetchers.py instead of the real registry, and print "
+        "[DRY-WRITE] lines instead of writing to Supabase",
     )
     parser.add_argument(
         "--list-required-keys",
@@ -120,7 +103,6 @@ def main(argv=None) -> int:
 
     indicators = indicators_data.get("indicators", [])
     settings = indicators_data.get("settings", {}) or {}
-    header_row = settings.get("header_row", 1)
     retain_periods_by_frequency = settings.get("retain_periods_by_frequency", {})
 
     try:
@@ -133,6 +115,7 @@ def main(argv=None) -> int:
 
     if args.list_required_keys:
         required = secrets.discover_required_env_vars(indicators, registry)
+        required |= set(supabase_client.REQUIRED_ENV_VARS)
         for name in sorted(required):
             print(name)
         return 0
@@ -151,7 +134,11 @@ def main(argv=None) -> int:
             return 2
 
         # --- startup validation 2: every REQUIRED_ENV_VAR must be present ---
+        # Supabase is a single fixed storage backend now (not pluggable per
+        # indicator like fetchers), so its two env vars are unconditionally
+        # required alongside whichever fetcher keys the active sources need.
         required_vars = secrets.discover_required_env_vars(indicators, registry)
+        required_vars |= set(supabase_client.REQUIRED_ENV_VARS)
         presence = secrets.check_env_vars_present(required_vars)
         missing = sorted(name for name, present in presence.items() if not present)
         if missing:
@@ -160,132 +147,97 @@ def main(argv=None) -> int:
                 print(f"  {name}")
             return 2
 
-    sheet_state = load_sheet_state(args.sheet_state_in)
-    tabs_state = sheet_state.get("tabs", {})
-
     succeeded = 0
     failures: list[dict] = []
     pending_configuration: list[dict] = []
-    sheet_updates: dict = {}
+    written: list[dict] = []
 
-    # Group indicators by category, preserving indicators.yaml order.
-    categories: dict[str, list[dict]] = {}
     for ind in indicators:
-        categories.setdefault(ind["category"], []).append(ind)
+        ind_id = ind["id"]
+        category = ind["category"]
+        name = ind.get("name", ind_id)
+        frequency = ind["frequency"]
+        source = ind["source"]
 
-    for category, cat_indicators in categories.items():
-        tab_grain = sheet_layout.resolve_tab_grain(cat_indicators)
-        category_state = tabs_state.get(category, {}) or {}
-        existing_periods = set(category_state.get("periods", []) or [])
-        existing_rows = category_state.get("rows", {}) or {}
-        running_max_row = max(
-            [r.get("row", header_row) for r in existing_rows.values()] + [header_row]
-        )
-
-        fresh_by_indicator: dict[str, list[dict]] = {}
-        row_by_indicator: dict[str, int] = {}
-        is_new_row_by_indicator: dict[str, bool] = {}
-
-        for ind in cat_indicators:
-            ind_id = ind["id"]
-            name = ind.get("name", ind_id)
-
-            missing = pending_fields(ind)
-            if missing:
-                print(f"[SKIP] {ind_id} (pending_configuration)")
-                pending_configuration.append(
-                    {"id": ind_id, "category": category, "name": name, "missing": missing}
-                )
-                continue
-
-            fetch_fn, required_env_var = registry_module.get_fetcher(ind["source"])
-
-            try:
-                if args.dry_run:
-                    api_key = "dry-run-unused"
-                else:
-                    api_key = secrets.get_key(required_env_var)
-                raw_results = fetch_fn(ind, api_key)
-            except Exception as exc:  # noqa: BLE001 - never let one indicator abort the run
-                print(f"[FAIL] {ind_id}")
-                failures.append(
-                    {
-                        "id": ind_id,
-                        "category": category,
-                        "name": name,
-                        "error": secrets.mask(str(exc)),
-                    }
-                )
-                continue
-
-            mapped = [
-                {
-                    "period": sheet_layout.map_to_grain_column(
-                        r["period"], ind["frequency"], tab_grain
-                    ),
-                    "value": r["value"],
-                }
-                for r in raw_results
-            ]
-            fresh_by_indicator[ind_id] = mapped
-
-            row_num = sheet_layout.assign_row(
-                {"rows": existing_rows}, ind_id, running_max_row, header_row
+        missing = pending_fields(ind)
+        if missing:
+            print(f"[SKIP] {ind_id} (pending_configuration)")
+            pending_configuration.append(
+                {"id": ind_id, "category": category, "name": name, "missing": missing}
             )
-            running_max_row = max(running_max_row, row_num)
-            row_by_indicator[ind_id] = row_num
-            is_new_row_by_indicator[ind_id] = ind_id not in existing_rows
-
-            succeeded += 1
-            print(f"[OK] {ind_id}")
-
-        if not fresh_by_indicator:
-            # Nothing succeeded in this category this run -- nothing to
-            # report in sheet_updates (failures/pending already recorded).
             continue
 
-        all_periods = set(existing_periods)
-        for periods in fresh_by_indicator.values():
-            all_periods.update(p["period"] for p in periods)
+        fetch_fn, required_env_var = registry_module.get_fetcher(source)
 
-        columns, dropped = sheet_layout.sliding_window(
-            list(all_periods), tab_grain, retain_periods_by_frequency
-        )
-        kept_set = set(columns)
-        col_index_by_period = {period: idx + 2 for idx, period in enumerate(columns)}
-
-        rows_out: dict = {}
-        for ind in cat_indicators:
-            ind_id = ind["id"]
-            if ind_id not in fresh_by_indicator:
-                continue
-            name = ind.get("name", ind_id)
-            existing_row_state = existing_rows.get(ind_id)
-            diff = sheet_layout.diff_rows(existing_row_state, fresh_by_indicator[ind_id])
-            cells = [
+        try:
+            if args.dry_run:
+                api_key = "dry-run-unused"
+            else:
+                api_key = secrets.get_key(required_env_var)
+            raw_results = fetch_fn(ind, api_key)
+        except Exception as exc:  # noqa: BLE001 - never let one indicator abort the run
+            print(f"[FAIL] {ind_id}")
+            failures.append(
                 {
-                    "column": entry["period"],
-                    "col_letter": sheet_layout.column_letter(col_index_by_period[entry["period"]]),
-                    "value": entry["value"],
+                    "id": ind_id,
+                    "category": category,
+                    "name": name,
+                    "error": secrets.mask(str(exc)),
                 }
-                for entry in diff
-                if entry["period"] in kept_set
-            ]
-            cells.sort(key=lambda c: col_index_by_period[c["column"]])
-            rows_out[ind_id] = {
-                "row": row_by_indicator[ind_id],
-                "label": name,
-                "is_new_row": is_new_row_by_indicator[ind_id],
-                "cells": cells,
-            }
+            )
+            continue
 
-        sheet_updates[category] = {
-            "header_row": header_row,
-            "label_column": sheet_layout.column_letter(1),
-            "columns": columns,
-            "rows": rows_out,
-            "drop_columns": dropped,
-        }
+        kept, _dropped = periods.sliding_window(
+            [r["period"] for r in raw_results], frequency, retain_periods_by_frequency
+        )
+        value_by_period = {r["period"]: r["value"] for r in raw_results}
+
+        rows = [
+            {
+                "indicator_id": ind_id,
+                "category": category,
+                "name_ko": name,
+                "period": period,
+                "frequency": frequency,
+                "value": value_by_period[period],
+                "unit": ind.get("unit", ""),
+                "source": source,
+            }
+            for period in kept
+        ]
+
+        if not rows:
+            # Fetch succeeded but nothing survived the retention window --
+            # nothing to write, but not a failure either.
+            succeeded += 1
+            print(f"[OK] {ind_id}")
+            written.append({"id": ind_id, "category": category, "periods_written": 0})
+            continue
+
+        try:
+            if args.dry_run:
+                print(f"[DRY-WRITE] {ind_id}: {len(rows)} periods")
+            else:
+                supabase_client.upsert_rows(rows)
+                # `kept` is already chronologically ascending (sliding_window's
+                # contract), so its first element is the oldest kept period.
+                cutoff_period = kept[0]
+                supabase_client.delete_before(ind_id, cutoff_period)
+        except Exception as exc:  # noqa: BLE001 - a write failure is still a failure
+            print(f"[FAIL] {ind_id}")
+            failures.append(
+                {
+                    "id": ind_id,
+                    "category": category,
+                    "name": name,
+                    "error": secrets.mask(str(exc)),
+                }
+            )
+            continue
+
+        succeeded += 1
+        print(f"[OK] {ind_id}")
+        written.append({"id": ind_id, "category": category, "periods_written": len(rows)})
 
     total = len(indicators)
     failed_count = len(failures)
@@ -310,7 +262,7 @@ def main(argv=None) -> int:
             "failed": failed_count,
             "pending_configuration": pending_count,
         },
-        "sheet_updates": sheet_updates,
+        "written": written,
         "failures": failures,
         "pending_configuration": pending_configuration,
         "summary_ko": summary_ko,

@@ -2,11 +2,12 @@
 
 A Claude Code plugin with two skills:
 
-1. **`econ-indicators`** — keeps a Google Sheet updated weekly with ~38
+1. **`econ-indicators`** — keeps a Supabase table updated weekly with ~42
    Korean/global economic indicators (latest 10 years, sliding window),
    pulled from BOK ECOS, KOSIS, data.go.kr customs, KRX, and FRED. Runs
    unattended inside a Claude Code **Routine** (cloud-scheduled) — each
-   teammate runs their own, under their own account.
+   teammate runs their own, under their own account and their own
+   Supabase project.
 2. **`moef-ppt`** — generates MOEF-styled presentations (HTML preview +
    editable PPTX) from a script and design system. Copied in unchanged
    from the author's personal skill; see [Known limitation](#known-limitation-moef-ppt-portability)
@@ -30,7 +31,12 @@ environment.
 moef-econpolicy/
 ├── .claude-plugin/          # plugin.json, marketplace.json
 ├── skills/
-│   ├── econ-indicators/     # Google Sheet indicator tracker
+│   ├── econ-indicators/     # Supabase indicator tracker
+│   │   ├── indicators.yaml
+│   │   ├── supabase_schema.sql
+│   │   ├── references/
+│   │   │   └── supabase_access.md
+│   │   └── scripts/
 │   └── moef-ppt/            # MOEF presentation generator (copied, unchanged)
 └── commands/
     └── setup-econ-routine.md
@@ -39,16 +45,15 @@ moef-econpolicy/
 ## Setting up your own Routine
 
 Run `/setup-econ-routine` and follow the prompts — it walks through
-installing the plugin, connecting a Google Sheets MCP connector, setting
-`GOOGLE_SHEET_ID` and the required `*_API_KEY` vars, setting the weekly
-schedule, and a test run.
+installing the plugin, creating the `economic_indicators` table in your
+Supabase project, setting `SUPABASE_URL`/`SUPABASE_KEY` and the required
+`*_API_KEY` vars, setting the weekly schedule, and a test run.
 
 ## Adding an indicator
 
 Add an entry to `skills/econ-indicators/indicators.yaml` under the right
-`category` (creates a new row in that category's tab automatically). No
-code changes needed as long as its `source` already has a registered
-fetcher.
+`category`. No code changes needed as long as its `source` already has a
+registered fetcher.
 
 ## Adding a data source
 
@@ -60,17 +65,34 @@ fetcher.
 
 `main.py` and the security rules never need to change — key discovery and
 masking are generic over any `*_API_KEY`-shaped env var, not a hardcoded
-list.
+list. Storage, by contrast, is a single fixed Supabase backend (not
+pluggable per indicator) — `SUPABASE_URL`/`SUPABASE_KEY` are the one
+hardcoded exception to the "generic by naming convention" rule.
+
+## Viewing results
+
+Supabase project → Table Editor → `economic_indicators` → Export to CSV →
+open in Excel.
 
 ## Security
 
-- API keys are read only from env vars at runtime, via a single function
-  (`scripts/secrets.py:get_key`) — never hardcoded, never written to a
-  file, never printed/logged. Presence is checked by name only.
+- API keys and the Supabase URL/key are read only from env vars at
+  runtime, via a single function (`scripts/secrets.py:get_key`) — never
+  hardcoded, never written to a file, never printed/logged. Presence is
+  checked by name only. `scripts/supabase_client.py` never reads
+  `os.environ` itself — it goes through `secrets.get_key()` like every
+  other module.
 - All error messages, URLs, and the final run summary are passed through
-  `secrets.mask()` before they can reach stdout or the output JSON,
-  scrubbing any currently-set `*_API_KEY` value and common key query
-  params (`key=`, `apikey=`, `serviceKey=`, ...) found in the text.
+  `secrets.mask()` before they can reach stdout or the output JSON. The
+  masking pattern (`secrets.SENSITIVE_ENV_VAR_PATTERN`) covers any
+  currently-set env var whose name ends in `_API_KEY`, `_KEY`, or `_URL`
+  — generic by naming convention, not a hardcoded list — plus common key
+  query params (`key=`, `apikey=`, `serviceKey=`, ...) found in the text.
+- **`SUPABASE_KEY` (service_role) is more sensitive than the `*_API_KEY`
+  values** — it bypasses Row Level Security entirely. Treat it
+  accordingly: never share it outside a Routine's own environment, never
+  use it in any client-facing context. See
+  `skills/econ-indicators/references/supabase_access.md`.
 - No code dumps the full environment.
 - `.gitignore` excludes `.env`, `*.env`, and other local secret files.
 - Routine environment variables are visible to anyone using that cloud
@@ -113,14 +135,25 @@ to run on a different machine.
 
 ## Requirement confirmation
 
-- ✅ **API key security** — verified independently: ran
-  `python -m compileall`, the full test suite (34/34 passing), a
-  `--dry-run` against the real `indicators.yaml`, and the missing-env-var
-  hard-abort path; grepped the whole `scripts/` tree confirming every
-  `print(` call carries only names/ids/counts or an already-`mask()`-ed
-  message, and that `os.environ` access is confined to `scripts/secrets.py`
-  (plus its own test). No hardcoded key-like strings found anywhere in the
-  repo. See [Security](#security).
+Re-verified against the current (Supabase-backed) code:
+- ✅ **API key / Supabase key security** — verified independently: ran
+  `python -m compileall` (clean across all 17 modules), the full test
+  suite (22/22 passing, including new `SUPABASE_KEY`/`SUPABASE_URL`
+  masking cases), `--list-required-keys` against the real
+  `indicators.yaml` (prints exactly `SUPABASE_KEY`, `SUPABASE_URL`, and
+  the 5 `*_API_KEY` names, sorted), a `--dry-run` against the real
+  `indicators.yaml` (42 total / 34 succeeded / 0 failed / 8
+  pending_configuration, `[DRY-WRITE]` lines only, no network calls,
+  valid JSON output), and the missing-env-var hard-abort path (all 7
+  required vars listed, nothing written to `--output-out`). Grepped the
+  whole `scripts/` tree confirming every `print(` call carries only
+  names/ids/counts or an already-`mask()`-ed message, and that
+  `os.environ` access is confined to `scripts/secrets.py` (plus its own
+  tests) — `scripts/supabase_client.py` uses `secrets.get_key()` only. An
+  ad-hoc check confirmed `secrets.mask()` redacts both a dummy
+  `SUPABASE_KEY` value and a dummy `SUPABASE_URL` value found in a fake
+  error string. No hardcoded key-like strings found anywhere in the repo.
+  See [Security](#security).
 - ✅ **Language split** — verified: all code, comments, `SKILL.md`,
-  command docs, and this README are English; only the Google Sheet
-  content and the chat-facing `summary_ko` are Korean.
+  command docs, and this README are English; only the Supabase table's
+  `name_ko` values and the chat-facing `summary_ko` are Korean.
